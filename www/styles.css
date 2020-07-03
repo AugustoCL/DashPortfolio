@@ -1,0 +1,11 @@
+rect[Attributes Style] {
+    fill: rgb(255,255,255);
+}
+
+.section.sidebar{
+    overflow: hidden;
+}
+
+*{
+    font-family: "Lucida Sans Unicode";
+}

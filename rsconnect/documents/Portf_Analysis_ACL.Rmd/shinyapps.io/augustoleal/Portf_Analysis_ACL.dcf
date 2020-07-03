@@ -1,0 +1,12 @@
+name: Portf_Analysis_ACL
+title: Portf_Analysis_ACL
+username:
+account: augustoleal
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 2029681
+bundleId: 3051825
+url: https://augustoleal.shinyapps.io/Portf_Analysis_ACL/
+when: 1587588255.78402
+asMultiple: FALSE
+asStatic: FALSE

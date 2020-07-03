@@ -1,0 +1,660 @@
+---
+title: "Análise de Portfólio por Augusto Leal"
+resource_files:
+- .fonts/LucidaSansUnic.ttf
+runtime: shiny
+output:
+  flexdashboard::flex_dashboard:
+    css: www/styles.css
+    navbar:
+    - align: right
+      href: https://www.linkedin.com/in/augustocleal/
+      icon: fa-linkedin
+    - align: right
+      href: https://github.com/AugustoCL
+      icon: fa-github
+    orientation: rows
+    social: menu
+    theme: spacelab
+    vertical_layout: fill
+---
+
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(tidyquant)
+library(timetk)
+library(highcharter)
+library(scales)
+library(PerformanceAnalytics)
+library(flexdashboard)
+library(shiny)
+library(ggthemes)
+# library(sysfonts)
+# library(extrafont)
+# loadfonts(quiet = TRUE)
+    # source_code: embed
+
+dir.create('~/.fonts')
+file.copy("www/LucidaSansUnic.ttf", "~/.fonts")
+system('fc-cache -f ~/.fonts')
+
+# font_import(pattern = "Lucida")
+
+font_ggplot <- "LucidaSansUnic"
+```
+
+Sidebar {.sidebar}
+===========================================
+
+```{r inputs}
+
+fluidRow(
+  column(7,
+  textInput("stock1", "Ação 1", "WEGE3.SA")),
+  column(4,
+  numericInput("w1", "Portf. %", 25, min = 1, max = 100))
+)  
+
+fluidRow(
+  column(7,
+  textInput("stock2", "Ação 2", "RENT3.SA")),
+  column(4,
+  numericInput("w2", "Portf. %", 20, min = 1, max = 100))
+)
+
+fluidRow(
+  column(7,
+  textInput("stock3", "Ação 3", "VALE3.SA")),
+  column(4,
+  numericInput("w3", "Portf. %", 20, min = 1, max = 100))
+)
+
+fluidRow(
+  column(7,
+  textInput("stock4", "Ação 4", "JBSS3.SA")),
+  column(4,
+  numericInput("w4", "Portf. %", 20, min = 1, max = 100))
+)
+
+fluidRow(
+  column(7,
+  textInput("stock5", "Ação 5", "ELET3.SA")),
+  column(4,
+  numericInput("w5", "Portf. %", 15, min = 1, max = 100))
+)
+
+
+fluidRow(
+  column(7,
+  dateInput("date_begin", "Data de Início", "2017-01-01", format = "yyyy-mm-dd"))
+)
+
+fluidRow(
+  column(7,
+  dateInput("date_end", "Data Final", "2020-04-20", format = "yyyy-mm-dd"))
+)
+
+fluidRow(
+  column(7,
+ selectInput(inputId = "periodo", label = "Periodicidade",
+            choices = c('Mensal','Semanal','Anual'), selected = "Semanal"))
+)
+
+fluidRow(
+  column(7,
+  numericInput("window", "Janela Móvel", 12, min = 1, max = 36, step = 1))
+)
+
+conditionalPanel(
+  condition = "(input.w1 + input.w2 + input.w3 + input.w4 + input.w5) == 100",
+  actionButton("go", "Calcular"))
+
+```
+
+```{r getprices}
+prices <- eventReactive(input$go, ignoreNULL = FALSE, {
+    symbols <- na.omit(c(input$stock1, input$stock2, input$stock3, input$stock4, input$stock5))
+  
+    prices <- 
+        getSymbols(symbols, src = 'yahoo', from = input$date_begin, to = input$date_end, 
+                   auto.assign = TRUE, warnings = FALSE) %>% 
+        map(~Ad(get(.))) %>% 
+        reduce(merge) %>%
+        `colnames<-`(symbols)
+})
+
+prices_periodo <- eventReactive(input$go, ignoreNULL = FALSE, {
+    
+    if(input$periodo == "Mensal"){
+        data <- prices() %>% 
+            to.monthly(indexAt = "lastof", OHLC = FALSE)
+    } else if(input$periodo == "Semanal"){
+        data <- prices() %>% 
+            to.weekly(indexAt = "lastof", OHLC = FALSE)
+    } else {
+        data <- prices() %>% 
+            to.yearly(indexAt = "lastof", OHLC = FALSE)
+    }
+  prices_periodo <- data
+})
+```
+
+```{r asset_ret}
+asset_returns_xts <- eventReactive(input$go, ignoreNULL = FALSE, {
+
+    asset_returns_xts <- 
+        prices_periodo() %>% 
+        Return.calculate(method = "log") %>% 
+        na.omit()
+})
+
+asset_returns_tq_builtin <- eventReactive(input$go, ignoreNULL = FALSE, {
+  
+    symbols <- na.omit(c(input$stock1, input$stock2, input$stock3, input$stock4, input$stock5))
+
+    if(input$periodo == "Mensal"){
+        periodo <- "monthly"
+    } else if(input$periodo == "Semanal"){
+        periodo <- "weekly"
+    } else {
+        periodo <- "yearly"
+    }
+    
+    asset_returns_tq_builtin <- 
+      prices() %>%
+      tk_tbl(preserve_index = TRUE,
+             rename_index = "date") %>%
+      gather(asset, prices, -date) %>%
+      group_by(asset) %>%
+      tq_transmute(mutate_fun = periodReturn,
+                   period = periodo,
+                   type = "log") %>%
+      spread(asset, paste0(as.character(periodo),".returns")) %>%
+      select(date, symbols) %>%
+      slice(-1)
+})
+
+asset_returns_long <- eventReactive(input$go, ignoreNULL = FALSE, {
+
+    asset_returns_long <-
+      asset_returns_tq_builtin() %>%
+      gather(key = "asset",value = "retornos",-date)
+})
+```
+
+
+```{r ret_portf}
+portfolio_returns_xts_rebalanced_monthly <- eventReactive(input$go, ignoreNULL = FALSE, {
+    w <- na.omit(c(input$w1/100, input$w2/100, input$w3/100, input$w4/100, input$w5/100))
+    
+    if(input$periodo == "Mensal"){
+        periodo <- "months"
+    } else if(input$periodo == "Semanal"){
+        periodo <- "weeks"
+    } else {
+        periodo <- "years"
+    }
+    
+    portfolio_returns_xts_rebalanced_monthly <- 
+        asset_returns_xts() %>% 
+        Return.portfolio(weights = w,
+                         rebalance_on = periodo) %>% 
+        `colnames<-`("retornos")
+   
+})
+    
+portfolio_returns_tq_rebalanced_monthly <- eventReactive(input$go, ignoreNULL = FALSE, {
+
+    w <- na.omit(c(input$w1/100, input$w2/100, input$w3/100, input$w4/100, input$w5/100))
+
+    portfolio_returns_tq_rebalanced_monthly <- 
+      asset_returns_long() %>% 
+        tq_portfolio(assets_col = asset,
+                     returns_col = retornos,
+                     weights = w,
+                     col_rename = "retornos")
+})
+```
+
+
+```{r roll_kurt_skew}
+rolling_sd <- eventReactive(input$go, ignoreNULL = FALSE,{
+window <- input$window
+
+rolling_sd <- 
+  rollapply(portfolio_returns_xts_rebalanced_monthly(),
+            FUN = sd,
+            width = window) %>% na.omit()
+})
+  
+rolling_kurt_xts <- eventReactive(input$go, ignoreNULL = FALSE, {
+    window <- input$window
+
+    rolling_kurt_xts <- rollapply(portfolio_returns_xts_rebalanced_monthly(),
+                                  FUN = kurtosis,
+                                  width = window) %>% na.omit()
+})
+
+rolling_skew_xts <- eventReactive(input$go, ignoreNULL = FALSE, {
+    window <- input$window
+    
+    rolling_skew_xts <- rollapply(portfolio_returns_xts_rebalanced_monthly(),
+                              FUN = skewness,
+                              width = window) %>% na.omit()
+})
+```
+
+```{r wrangle_for_graphs}
+ret_hist <- eventReactive(input$go, ignoreNULL = FALSE, {
+  ret_hist <- asset_returns_long() %>% 
+    spread(key = asset, value = retornos) %>% 
+    add_column(Portfolio = portfolio_returns_tq_rebalanced_monthly()$retornos) %>% 
+    gather(key = "asset", value = "retornos", -date)
+})
+
+sd_sum <- eventReactive(input$go, ignoreNULL = FALSE, {
+  sd_sum <- asset_returns_long() %>% 
+    group_by(asset) %>% 
+    summarise(ret = mean(retornos),
+              sd = sd(retornos)) %>% 
+    add_row(asset = "Portfolio",
+            ret = mean(portfolio_returns_tq_rebalanced_monthly()$retornos),
+            sd = sd(portfolio_returns_tq_rebalanced_monthly()$retornos))
+})
+
+skew_sum_B <- eventReactive(input$go, ignoreNULL = FALSE, {
+    skew_sum_B <- 
+      asset_returns_long() %>% 
+      group_by(asset) %>% 
+      summarise(skewness = skewness(retornos)) %>% 
+      add_row(asset = "Portfolio",
+              skewness = skewness(portfolio_returns_tq_rebalanced_monthly()$retornos))
+})
+
+skew_sum_c <- eventReactive(input$go, ignoreNULL = FALSE, {
+    skew_sum_c <- 
+      asset_returns_long() %>% 
+      group_by(asset) %>% 
+      summarise(sd = sd(retornos),
+              skewness = skewness(retornos)) %>% 
+      add_row(asset = "Portfolio",
+            sd = sd(portfolio_returns_tq_rebalanced_monthly()$retornos),
+            skewness = skewness(portfolio_returns_tq_rebalanced_monthly()$retornos)) 
+})
+
+kurt_sum_B <- eventReactive(input$go, ignoreNULL = FALSE,{
+  kurt_sum_B <- 
+    asset_returns_long() %>% 
+    group_by(asset) %>% 
+    summarise(kurtose = kurtosis(retornos)) %>% 
+    add_row(asset = "Portfolio",
+            kurtose = kurtosis(portfolio_returns_tq_rebalanced_monthly()$retornos))
+})
+
+kurt_sum_C <- eventReactive(input$go, ignoreNULL = FALSE, {
+  kurt_sum_C <- 
+    asset_returns_long() %>% 
+    group_by(asset) %>% 
+    summarise(sd = sd(retornos),
+              kurtose = kurtosis(retornos)) %>% 
+    add_row(asset = "Portfolio",
+            sd = sd(portfolio_returns_tq_rebalanced_monthly()$retornos),
+            kurtose = kurtosis(portfolio_returns_tq_rebalanced_monthly()$retornos))  
+})
+```
+
+
+Log-Retorno/Desvio Padrão
+===========================================
+
+Row {.tabset}
+----------------------------------------------------------------------
+### Log-Retorno
+
+```{r}
+renderHighchart({
+    asset_returns_long() %>% 
+    mutate(retornos = retornos*100) %>% 
+    hchart(., type = "line",
+           hcaes(x = date,y = retornos, group = asset)) %>% 
+    hc_plotOptions(line = list(marker = list(enabled = FALSE, opacity = 0.1))) %>% 
+    hc_colors(colors = RColorBrewer::brewer.pal(
+      n = length(unique(asset_returns_long()$asset)),
+      name = "Pastel1")) %>%
+    hc_add_series(portfolio_returns_xts_rebalanced_monthly()$retornos*100, 
+                  name = "Portfólio",
+                  color = "#000000",
+                  type = "line",
+                  marker = list(opacity = 1)) %>% 
+    hc_title(text = paste0("Log-Retorno ", input$periodo, " do Portfólio")) %>%
+    hc_yAxis(opposite = TRUE,
+             plotLines = list(list(
+               value = 0,
+               width = 2,
+               color = "black",
+               dashStyle = "dash")),
+             labels = list(format = "{value:.0f}%"),
+             title = list(text = paste0("Log-Retorno ", input$periodo))) %>% 
+    hc_xAxis(title = list(text = NULL),
+             labels = list(format = "{value:%Y-%m}")) %>% 
+    hc_add_theme(hc_theme_google()) %>%
+    hc_tooltip(shared = TRUE,
+               useHTML = TRUE,
+               headerFormat = "<b>{point.x:%Y/%m/%d}</b><table>",
+               # pointFormat = '<tr><td style="text-align: right"><b>{series.name}: </b></td>
+               pointFormat = '<tr><td style="color: {series.color}"><b>{series.name}: </b></td>
+                 <td style="text-align: right"><b>{point.y: .2f} %</b></td></tr>',
+               footerFormat = "</table>",
+               xDateFormat = "%y/%m/%d") %>%
+    hc_legend(enabled = TRUE) %>% 
+    hc_navigator(enabled = TRUE) %>% 
+    hc_scrollbar(enabled = FALSE) %>% 
+    hc_exporting(enabled = TRUE)
+
+  })
+```
+
+### Desvio Padrão Móvel
+```{r}
+renderHighchart({
+  
+highchart(type = "stock") %>% 
+  hc_add_series(rolling_sd(),
+                name = "Desvio Padrão Móvel",
+                lineWidth = 5) %>% 
+  hc_title(text = paste0("Desvio Padrão Móvel de ",
+                         input$window, " Períodos do Portfólio")) %>% 
+  hc_yAxis(title = list(text = "Desvio Padrão"),
+           opposite = FALSE) %>%
+  hc_tooltip(pointFormat = '<span style="color:{point.color}">●</span> Desvio Padrão: <b>{point.y: .2f}</b><br/>') %>% 
+  hc_navigator(enabled = FALSE) %>%
+  hc_scrollbar(enabled = FALSE) %>%
+  hc_exporting(enabled = TRUE)
+
+})
+```
+
+Row
+----------------------------------------------------------------------
+### 
+```{r}
+
+fillRow(flex = c(1,1,1),
+
+renderHighchart({
+  hchart(round(cor(asset_returns_xts()),2),label = TRUE) %>%
+  hc_plotOptions(heatmap = list(dataLabels = list(style = list(fontSize = "16px",
+                                                               textOutline = "1px contrast",
+                                                               color = "black")))) %>% 
+  hc_legend(align = "right", layout = "vertical", margin = 0,
+            verticalAlign = "top", y = 25, symbolHeight = 280) %>% 
+  hc_title(text = "Matriz de Correlação")
+  
+}),        
+
+renderHighchart({
+    hchart(sd_sum(), type = "scatter",
+           hcaes(x = sd, y = ret, group = asset)) %>% 
+    hc_plotOptions(scatter = list(marker = list(radius = 10))) %>% 
+    hc_xAxis(title = list(text = "Desvio Padrão")) %>% 
+    hc_title(text = "Log-Retorno x Desvio Padrão") %>% 
+    hc_yAxis(title = list(text = "Log-Retorno"),
+             plotLines = list(list(
+               value = 0,
+               width = 2,
+               color = "black",
+               dashStyle = "dash"))) %>% 
+    hc_legend(enabled = TRUE) %>% 
+    hc_annotations(list(
+      labels = list(
+        list(point = list(
+          x = sd(portfolio_returns_tq_rebalanced_monthly()$retornos),
+          y = mean(portfolio_returns_tq_rebalanced_monthly()$retornos)*1.03,
+          xAxis = 0, yAxis = 0), text = "Portfólio")))) %>%
+    hc_tooltip(shared = TRUE,
+               headerFormat = '<span style="font-size: 14px"><b>{series.name}</b></span><br/>',
+               pointFormat = 'Log-Ret: <b>{point.y:.2f}</b><br> DesvPad: <b>{point.x:.2f}</b>')
+  }),
+
+renderPlot({
+  cbp2 <- c("#E69F00", "#56B4E9", "#009E73",
+          "#CC79A7", "#000000", "#0072B2")
+
+  ret_hist() %>%  ggplot(aes(x = retornos,fill = asset, colour = asset)) +
+    geom_density(alpha = 0.25, size = 1) +
+    xlab("Log-Retornos %") + ylab(NULL) +
+    # ggtitle("Distribuição dos Log-Retornos Mensais") +
+    # theme_classic() +
+    facet_wrap(~asset) +
+    scale_color_manual(values = cbp2, aesthetics = c("color","fill")) +
+    theme_minimal() + 
+    theme(plot.title = element_text(hjust = 0.5),
+          legend.position = "none",
+          text = element_text(family = font_ggplot))
+})
+
+)
+```
+
+
+
+Assimetria/Curtose
+===========================================
+
+Row { .tabset}
+------------------------------------------
+
+### Assimetria
+
+```{r}
+fillCol(flex = 2,
+
+renderHighchart({
+  
+highchart(type = "stock") %>% 
+  hc_add_series(rolling_skew_xts(),
+                name = "Assimetria Móvel",
+                lineWidth = 5) %>% 
+  hc_title(text = paste0("Assimetria Móvel de ", input$window, " Períodos do Portfólio")) %>% 
+  hc_yAxis(title = list(text = "Assimetria"),
+           opposite = FALSE,
+           plotLines = list(list(
+             value = 0,
+             width = 2,
+             color = "black",
+             dashStyle = "dash"))) %>%
+  hc_tooltip(pointFormat = '<span style="color:{point.color}">●</span> Assimetria: <b>{point.y: .2f}</b><br/>') %>% 
+  hc_navigator(enabled = FALSE) %>%
+  hc_scrollbar(enabled = FALSE) %>%
+  hc_exporting(enabled = TRUE)
+
+}),
+
+fillRow(flex = c(1,1,1),
+        
+  renderHighchart({
+    
+    hchart(skew_sum_B(), type = "column",
+           hcaes(x = asset, y = skewness, color = asset)) %>% 
+    hc_title(text = "Assimetria por Ativo") %>% 
+    hc_xAxis(title = list(text = NULL)) %>% 
+    hc_yAxis(title = list(text = "Assimetria")) %>% 
+    # hc_add_theme(hc_theme_google()) %>%
+    hc_tooltip(valueDecimals = 2,
+               headerFormat = '<span style="font-size: 14px">{point.key}</span><br/>',
+               pointFormat = '<span style="color:{point.color}">●</span> Assimetria: <b>{point.y}</b><br/>', 
+               useHTML = TRUE)
+  }),
+
+  renderHighchart({
+    
+    hchart(skew_sum_c(), type = "scatter",
+           hcaes(x = sd, y = skewness, group = asset)) %>% 
+    hc_plotOptions(scatter = list(marker = list(radius = 10))) %>% 
+    hc_xAxis(title = list(text = "Desvio Padrão")) %>% 
+    hc_title(text = "Assimetria x Desvio Padrão") %>% 
+    hc_yAxis(title = list(text = "Assimetria"),
+             plotLines = list(list(
+               value = 0,
+               width = 2,
+               color = "black",
+               dashStyle = "dash"))) %>% 
+    hc_legend(enabled = TRUE) %>% 
+    hc_annotations(list(
+      labels = list(
+        list(point = list(
+          x = sd(portfolio_returns_tq_rebalanced_monthly()$retornos),
+          y = skewness(portfolio_returns_tq_rebalanced_monthly()$retornos)*0.9,
+          xAxis = 0, yAxis = 0), text = "Portfólio")))) %>%
+    hc_tooltip(shared = TRUE,
+               headerFormat = '<span style="font-size: 14px"><b>{series.name}</b></span><br/>',
+               pointFormat = 'Assimetria: <b>{point.y:.2f}</b><br> DesvPad: <b>{point.x:.2f}</b>')
+  }),
+
+  renderPlot({
+
+    portfolio_returns_tq_rebalanced_monthly <- portfolio_returns_tq_rebalanced_monthly()
+    mean <- mean(portfolio_returns_tq_rebalanced_monthly$retornos)
+    median <- median(portfolio_returns_tq_rebalanced_monthly$retornos)
+    sd <- sd(portfolio_returns_tq_rebalanced_monthly$retornos)
+      
+    skew_density_plot <- portfolio_returns_tq_rebalanced_monthly %>% 
+      ggplot(aes(x = retornos)) +
+      ylab(NULL) + xlab("Log-Retorno do Portfólio") +
+      stat_density(geom = "line", size = 2, color = "cornflowerblue") +
+      xlim(c(-3*sd,3*sd))
+    
+    shaded_area_data <- 
+      ggplot_build(skew_density_plot)$data[[1]] %>% filter(x < mean)
+  
+    skew_density_plot_shaded <- 
+      skew_density_plot + 
+      geom_area(data = shaded_area_data, aes(x = x, y = y), fill="pink", alpha = 0.5)
+    
+    median_line_data <- 
+      ggplot_build(skew_density_plot)$data[[1]] %>% 
+      filter(x <= median)
+  
+  skew_density_plot_shaded +
+    geom_segment(data = median_line_data, aes(x = median, y = 0, xend = median, yend = density),color = "black", linetype = "dotted") +
+    theme_hc() +
+    theme(text = element_text(family = font_ggplot)) +
+    annotate(geom = "text", x = median, y = 5, label = "Mediana", 
+             fontface = "plain", angle = 90, alpha = .8, vjust =  1.75) +
+    annotate(geom = "text", x = (mean - .03), y = .1, label = "Retornos < Média", 
+             fontface = "plain", color = "red", alpha = .8, vjust =  -1)
+  })
+
+  )
+
+)
+```
+
+### Curtose
+
+```{r}
+fillCol(flex = 2,
+
+renderHighchart({
+
+  highchart(type = "stock") %>% 
+    hc_add_series(rolling_kurt_xts(),
+                  name = "Curtose Móvel",
+                  lineWidth = 5) %>% 
+    hc_title(text = paste0("Curtose Móvel de ",input$window, " Períodos do Portfólio")) %>% 
+    hc_yAxis(title = list(text = "Curtose"),
+             opposite = FALSE,
+             plotLines = list(list(
+               value = 0,
+               width = 2,
+               color = "black",
+               dashStyle = "dash"))) %>%
+    hc_tooltip(pointFormat = '<span style="color:{point.color}">●</span> Curtose: <b>{point.y: .2f}</b><br/>') %>% 
+    hc_navigator(enabled = FALSE) %>%
+    hc_scrollbar(enabled = FALSE) %>%
+    hc_exporting(enabled = TRUE)
+  
+  }),
+
+fillRow(flex = c(1,1,1),
+  
+  renderHighchart({
+    hchart(kurt_sum_B(), type = "column",
+           hcaes(x = asset, y = kurtose, color = asset)) %>% 
+    hc_title(text = "Curtose por Ativo") %>% 
+    hc_xAxis(title = list(text = NULL)) %>% 
+    hc_yAxis(title = list(text = "Curtose")) %>% 
+    # hc_add_theme(hc_theme_google()) %>%
+    hc_tooltip(valueDecimals = 2,
+               headerFormat = '<span style="font-size: 14px">{point.key}</span><br/>',
+               pointFormat = '<span style="color:{point.color}">●</span> Curtose: <b>{point.y}</b><br/>', 
+               useHTML = TRUE)
+  }),
+
+  renderHighchart({
+    
+    hchart(kurt_sum_C(), type = "scatter",
+           hcaes(x = sd, y = kurtose, group = asset)) %>% 
+    hc_plotOptions(scatter = list(marker = list(radius = 10))) %>% 
+    hc_title(text = "Curtose x Desvio Padrão") %>% 
+    hc_xAxis(title = list(text = "Desvio Padrão")) %>% 
+    hc_yAxis(title = list(text = "Curtose"),
+             plotLines = list(list(
+               value = 0,
+               width = 2,
+               color = "black",
+               dashStyle = "dash"))) %>% 
+    hc_legend(enabled = TRUE) %>% 
+    hc_annotations(list(
+      labels = list(
+        list(point = list(
+          x = sd(portfolio_returns_tq_rebalanced_monthly()$retornos),
+          y = kurtosis(portfolio_returns_tq_rebalanced_monthly()$retornos)*0.9,
+          xAxis = 0, yAxis = 0), text = "Portfólio")))) %>% 
+    hc_tooltip(shared = TRUE,
+               headerFormat = '<span style="font-size: 14px"><b>{series.name}</b></span><br/>',
+               pointFormat = 'Curtose: <b>{point.y:.2f}</b><br> DesvPad: <b>{point.x:.2f}</b>')
+  }),
+
+  renderPlot({
+
+    portfolio_returns_tq_rebalanced_monthly <- portfolio_returns_tq_rebalanced_monthly()
+    mean <- mean(portfolio_returns_tq_rebalanced_monthly$retornos)
+    median <- median(portfolio_returns_tq_rebalanced_monthly$retornos)
+    sd <- sd(portfolio_returns_tq_rebalanced_monthly$retornos)
+    
+    skew_density_plot <- portfolio_returns_tq_rebalanced_monthly %>% 
+      ggplot(aes(x = retornos)) +
+      ylab(NULL) + xlab("Log-Retorno do Portfólio") +
+      stat_density(geom = "line", size = 2, color = "cornflowerblue") +
+      xlim(c(-3*sd,3*sd))
+    
+    shaded_area_data <- 
+      ggplot_build(skew_density_plot)$data[[1]] %>% filter(x < mean)
+  
+    skew_density_plot_shaded <- 
+      skew_density_plot + 
+      geom_area(data = shaded_area_data, aes(x = x, y = y), fill="pink", alpha = 0.5)
+    
+    median_line_data <- 
+      ggplot_build(skew_density_plot)$data[[1]] %>% 
+      filter(x <= median)
+  
+  skew_density_plot_shaded +
+    geom_segment(data = median_line_data, aes(x = median, y = 0, xend = median, yend = density), 
+                 color = "black", linetype = "dotted") +
+    theme_hc()+
+    theme(text = element_text(family = font_ggplot)) +
+    annotate(geom = "text", x = median, y = 5, label = "Mediana", 
+             fontface = "plain", angle = 90, alpha = .8, vjust =  1.75) +
+    annotate(geom = "text", x = (mean - .03), y = .1, label = "Retornos < Média", 
+             fontface = "plain", color = "red", alpha = .8, vjust =  -1)
+  })
+
+  )
+
+)
+
+```
+
