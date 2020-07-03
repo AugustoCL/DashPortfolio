@@ -17,7 +17,7 @@ Aproveite a interatividade dos gráficos no dashboard e experimente os filtros d
 
 Ação Brasileira | Ação Americana
 --------------- | ----------------
-WEGE3\.SA (WEG) | SBUX (Starbucks)
+**WEGE3\.SA** (WEG) | **SBUX** (Starbucks)
 
 Em caso de dúvidas do ticker correto, acesse o [Yahoo Finance](https://finance.yahoo.com/) para a captura dos ativos desejados.
 
@@ -28,11 +28,11 @@ Em caso de dúvidas do ticker correto, acesse o [Yahoo Finance](https://finance.
 **PERIODICIDADE e JANELA MÓVEL**: Utilize estas opções para detalhar sua análise. Os log-retornos serão analisados de acordo com a periodicidade selecionada (anual, mensal e semanal) e a janela móvel te permite observar o comportamento histórico de medidas de risco do portfólio, como desvio padrão, assimetria e curtose. 
 
 # Resumo das 4 visões
-**Log-Retornos**: Para avaliarmos as distribuições estatpisticas dos retornos, é necessário utilizar o `log-retorno` para equalizar os pesos para os retornos positivos e negativos. Acesse esse [link](http://ferramentasdoinvestidor.com.br/dicas-de-excel/entenda-o-log-retorno/) para uma maior compreensão do uso necessário do log-retorno na avaliação de retornos acumulados.  
+**Log-Retornos**: Para avaliarmos as distribuições históricas dos retornos, é necessário utilizar o `log-retorno` para equalizar os pesos para os retornos reais positivos e negativos. Acesse esse [link](http://ferramentasdoinvestidor.com.br/dicas-de-excel/entenda-o-log-retorno/) para uma maior compreensão do uso necessário do log-retorno na avaliação de retornos acumulados.  
 
 **Desvio Padrão**:  Indica o grau de dispersão dos log-retornos dos ativos em relação a sua média. Quanto maior o desvio padrão, mais volátil (risco) é o log-retorno do ativo.
 
-**Assimetria**: Descrever o comportamento histórico dos retornos através da assimetria de sua distribuição em relação a média. Como a média dos log-retornos tendem a zero, assimetria negativa indica forte presença de retornos positivos, enquanto assimetria positiva indica grandes retorno negativos. ![](./imgs/assim.jpg)
+**Assimetria**: Descrever o comportamento histórico dos retornos através da assimetria de sua distribuição em relação a média. Como a média dos log-retornos tendem a zero, assimetria negativa indica forte presença de retornos positivos, enquanto assimetria positiva indica grandes retorno negativos. ![](./imgs/assim.JPG)
 
 **Curtose**: Descreve a intensidade de valores extremos na distribuição de retornos.Curtose alta significa recorrência de retornos extremos no histórico do ativo.![](./imgs/curtose.png)
 

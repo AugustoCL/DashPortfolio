@@ -30,10 +30,6 @@ library(PerformanceAnalytics)
 library(flexdashboard)
 library(shiny)
 library(ggthemes)
-# library(sysfonts)
-# library(extrafont)
-# loadfonts(quiet = TRUE)
-    # source_code: embed
 
 dir.create('~/.fonts')
 file.copy("www/LucidaSansUnic.ttf", "~/.fonts")
@@ -54,7 +50,7 @@ fluidRow(
   textInput("stock1", "Ação 1", "WEGE3.SA")),
   column(4,
   numericInput("w1", "Portf. %", 25, min = 1, max = 100))
-)  
+)
 
 fluidRow(
   column(7,
@@ -87,12 +83,12 @@ fluidRow(
 
 fluidRow(
   column(7,
-  dateInput("date_begin", "Data de Início", "2017-01-01", format = "yyyy-mm-dd"))
+  dateInput("date_begin", "Data de Início", "2018-01-01", format = "yyyy-mm-dd"))
 )
 
 fluidRow(
   column(7,
-  dateInput("date_end", "Data Final", "2020-04-20", format = "yyyy-mm-dd"))
+  dateInput("date_end", "Data Final", "2020-06-30", format = "yyyy-mm-dd"))
 )
 
 fluidRow(
