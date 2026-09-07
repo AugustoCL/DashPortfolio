@@ -19,11 +19,13 @@ Ação Brasileira | Ação Americana
 --------------- | ----------------
 **WEGE3\.SA** (WEG) | **SBUX** (Starbucks)
 
+O portfólio padrão carrega os tickers `WEGE3.SA`, `RENT3.SA`, `VALE3.SA`, `PETR4.SA` e `ITUB4.SA`. Caso algum ticker não seja mais encontrado no Yahoo Finance, o dashboard exibe um aviso indicando qual ativo remover ou corrigir.
+
 Em caso de dúvidas do ticker correto, acesse o [Yahoo Finance](https://finance.yahoo.com/) para a captura dos ativos desejados.
 
 **PESOS**: Certifique-se de que os pesos somem 100% para que os cálculos do dashboard sejam efetuados. Para isso, o botão 'Calcular' fica disponível somente quando os pesos somam 100%.
 
-**DATAS**: Quando selecionar as datas de início e fim de análise, atente-se para que todas as 5 ações estejam disponíveis neste período. Caso alguma cia não esteja disponível no intervalo os cálculos do portfólio irão quebrar. --> (*Este caso está incluso na lista de melhorias abaixo*)
+**DATAS**: O período de análise é definido automaticamente como uma janela móvel de 3 anos: a data final é o último dia do mês anterior e a data inicial é 3 anos antes. Você ainda pode ajustar as datas manualmente, mas atente-se para que todas as 5 ações estejam disponíveis no período selecionado.
 
 **PERIODICIDADE e JANELA MÓVEL**: Utilize estas opções para detalhar sua análise. Os log-retornos serão analisados de acordo com a periodicidade selecionada (anual, mensal e semanal) e a janela móvel te permite observar o comportamento histórico de medidas de risco do portfólio, como desvio padrão, assimetria e curtose. 
 

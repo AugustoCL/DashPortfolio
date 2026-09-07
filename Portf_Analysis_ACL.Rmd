@@ -23,6 +23,9 @@ output:
 ```{r setup, include=FALSE}
 library(tidyverse)
 library(tidyquant)
+library(quantmod)
+library(xts)
+library(zoo)
 library(timetk)
 library(highcharter)
 library(scales)
@@ -31,13 +34,14 @@ library(flexdashboard)
 library(shiny)
 library(ggthemes)
 
-dir.create('~/.fonts')
-file.copy("www/LucidaSansUnic.ttf", "~/.fonts")
-system('fc-cache -f ~/.fonts')
-
-# font_import(pattern = "Lucida")
+dir.create(path.expand("~/.fonts"), showWarnings = FALSE, recursive = TRUE)
+file.copy(".fonts/LucidaSansUnic.ttf", path.expand("~/.fonts/"), overwrite = TRUE)
+system("fc-cache -f ~/.fonts")
 
 font_ggplot <- "LucidaSansUnic"
+
+end_date_default   <- lubridate::floor_date(Sys.Date(), "month") - 1
+start_date_default <- end_date_default - lubridate::years(3)
 ```
 
 Sidebar {.sidebar}
@@ -68,14 +72,14 @@ fluidRow(
 
 fluidRow(
   column(7,
-  textInput("stock4", "Ação 4", "JBSS3.SA")),
+  textInput("stock4", "Ação 4", "PETR4.SA")),
   column(4,
   numericInput("w4", "Portf. %", 20, min = 1, max = 100))
 )
 
 fluidRow(
   column(7,
-  textInput("stock5", "Ação 5", "ELET3.SA")),
+  textInput("stock5", "Ação 5", "ITUB4.SA")),
   column(4,
   numericInput("w5", "Portf. %", 15, min = 1, max = 100))
 )
@@ -83,12 +87,12 @@ fluidRow(
 
 fluidRow(
   column(7,
-  dateInput("date_begin", "Data de Início", "2018-01-01", format = "yyyy-mm-dd"))
+  dateInput("date_begin", "Data de Início", start_date_default, format = "yyyy-mm-dd"))
 )
 
 fluidRow(
   column(7,
-  dateInput("date_end", "Data Final", "2020-06-30", format = "yyyy-mm-dd"))
+  dateInput("date_end", "Data Final", end_date_default, format = "yyyy-mm-dd"))
 )
 
 fluidRow(
@@ -110,27 +114,41 @@ conditionalPanel(
 
 ```{r getprices}
 prices <- eventReactive(input$go, ignoreNULL = FALSE, {
-    symbols <- na.omit(c(input$stock1, input$stock2, input$stock3, input$stock4, input$stock5))
-  
-    prices <- 
-        getSymbols(symbols, src = 'yahoo', from = input$date_begin, to = input$date_end, 
-                   auto.assign = TRUE, warnings = FALSE) %>% 
-        map(~Ad(get(.))) %>% 
-        reduce(merge) %>%
-        `colnames<-`(symbols)
+    symbols <- c(input$stock1, input$stock2, input$stock3, input$stock4, input$stock5)
+    symbols <- symbols[nzchar(symbols)]
+    validate(need(length(symbols) > 0, "Informe ao menos um ticker para calcular."))
+
+    prices_long <- tryCatch(
+        suppressWarnings(tidyquant::tq_get(symbols, get = "stock.prices",
+                          from = input$date_begin, to = input$date_end)),
+        error = function(e) NULL
+    )
+    validate(need(!is.null(prices_long) && nrow(prices_long) > 0,
+                  "Não foi possível buscar os dados no Yahoo Finance. Verifique os tickers e as datas."))
+
+    missing <- setdiff(symbols, unique(prices_long$symbol))
+    validate(need(length(missing) == 0,
+                  paste0("Ticker(s) não encontrado(s) no Yahoo Finance: ",
+                         paste(missing, collapse = ", "),
+                         ". Corrija ou remova para calcular.")))
+
+    prices <- prices_long %>%
+        dplyr::select(symbol, date, adjusted) %>%
+        tidyr::pivot_wider(names_from = symbol, values_from = adjusted) %>%
+        timetk::tk_xts(date_var = date, silent = TRUE)
 })
 
 prices_periodo <- eventReactive(input$go, ignoreNULL = FALSE, {
     
     if(input$periodo == "Mensal"){
         data <- prices() %>% 
-            to.monthly(indexAt = "lastof", OHLC = FALSE)
+            to.monthly(indexAt = "endof", OHLC = FALSE)
     } else if(input$periodo == "Semanal"){
         data <- prices() %>% 
-            to.weekly(indexAt = "lastof", OHLC = FALSE)
+            to.weekly(indexAt = "endof", OHLC = FALSE)
     } else {
         data <- prices() %>% 
-            to.yearly(indexAt = "lastof", OHLC = FALSE)
+            to.yearly(indexAt = "endof", OHLC = FALSE)
     }
   prices_periodo <- data
 })
@@ -146,36 +164,15 @@ asset_returns_xts <- eventReactive(input$go, ignoreNULL = FALSE, {
 })
 
 asset_returns_tq_builtin <- eventReactive(input$go, ignoreNULL = FALSE, {
-  
-    symbols <- na.omit(c(input$stock1, input$stock2, input$stock3, input$stock4, input$stock5))
-
-    if(input$periodo == "Mensal"){
-        periodo <- "monthly"
-    } else if(input$periodo == "Semanal"){
-        periodo <- "weekly"
-    } else {
-        periodo <- "yearly"
-    }
-    
-    asset_returns_tq_builtin <- 
-      prices() %>%
-      tk_tbl(preserve_index = TRUE,
-             rename_index = "date") %>%
-      gather(asset, prices, -date) %>%
-      group_by(asset) %>%
-      tq_transmute(mutate_fun = periodReturn,
-                   period = periodo,
-                   type = "log") %>%
-      spread(asset, paste0(as.character(periodo),".returns")) %>%
-      select(date, symbols) %>%
-      slice(-1)
+    asset_returns_xts() %>%
+      tk_tbl(rename_index = "date") %>%
+      pivot_longer(-date, names_to = "asset", values_to = "retornos")
 })
 
 asset_returns_long <- eventReactive(input$go, ignoreNULL = FALSE, {
 
     asset_returns_long <-
-      asset_returns_tq_builtin() %>%
-      gather(key = "asset",value = "retornos",-date)
+      asset_returns_tq_builtin()
 })
 ```
 
@@ -244,9 +241,9 @@ rolling_skew_xts <- eventReactive(input$go, ignoreNULL = FALSE, {
 ```{r wrangle_for_graphs}
 ret_hist <- eventReactive(input$go, ignoreNULL = FALSE, {
   ret_hist <- asset_returns_long() %>% 
-    spread(key = asset, value = retornos) %>% 
+    pivot_wider(names_from = asset, values_from = retornos) %>% 
     add_column(Portfolio = portfolio_returns_tq_rebalanced_monthly()$retornos) %>% 
-    gather(key = "asset", value = "retornos", -date)
+    pivot_longer(-date, names_to = "asset", values_to = "retornos")
 })
 
 sd_sum <- eventReactive(input$go, ignoreNULL = FALSE, {

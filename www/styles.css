@@ -3,7 +3,16 @@ rect[Attributes Style] {
 }
 
 .section.sidebar{
-    overflow: hidden;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+.section.sidebar .form-group{
+    margin-bottom: 14px;
+}
+
+.section.sidebar .form-group .control-label{
+    margin-bottom: 2px;
 }
 
 *{
